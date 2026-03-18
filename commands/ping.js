@@ -14,7 +14,7 @@ export default {
           { name: "Latency", value: `${latency} ms`, inline: true },
           { name: "API Latency", value: `${Math.round(interaction.client.ws.ping)} ms`, inline: true }
         )
-        .setFooter({ text: "Iselle — Pick Me Up Infinite Gacha" });
+        .setFooter({ text: "Assigne — Pick Me Up Infinite Gacha" });
       await interaction.editReply({ content: null, embeds: [embed] });
     } catch (err) {
       console.error("ping command error:", err);

@@ -13,7 +13,7 @@ export default {
     .addStringOption(option =>
       option.setName("project")
         .setDescription("The project name or partial name (e.g. Panthar)")
-        .setRequired(true)
+        .setRequired(false) // Optional!
     )
     .addStringOption(option =>
       option.setName("assignees")
@@ -31,23 +31,29 @@ export default {
     const assignees = interaction.options.getString("assignees");
 
     try {
-      // 1. Map Project Name (fuzzy matching)
-      const search = await getProjects(""); // utilizes local cache, 0ms!
-      const matches = search.filter(p => p.name.toLowerCase().includes(projectNameInput.toLowerCase()));
-      
       let projectId = null;
+      let projectLabel = "None"; // Default if not provided
 
-      if (matches.length > 1) {
-        const matchedTitles = matches.map(p => `**${p.name}**`).join(", ");
-        return interaction.editReply({ 
-          content: `⚠️ **Ambiguous Project choice.** Your typing fit multiple projects: ${matchedTitles}.\n\nPlease be more specific!` 
-        });
-      } else if (matches.length === 1) {
-        projectId = matches[0].id;
-      } else {
-        return interaction.editReply({ 
-          content: `❌ **No projects found matching \`${projectNameInput}\`.** Please ensure the name is correct in Notion!` 
-        });
+      // 1. Map Project Name (fuzzy matching) - ONLY if provided!
+      if (projectNameInput) {
+        const search = await getProjects(""); // utilizes local cache, 0ms!
+        const matches = search.filter(p => p.name.toLowerCase().includes(projectNameInput.toLowerCase()));
+
+        if (matches.length > 1) {
+          const matchedTitles = matches.map(p => `**${p.name}**`).join(", ");
+          return interaction.editReply({ 
+            content: `⚠️ **Ambiguous Project choice.** Your typing fit multiple projects: ${matchedTitles}.\n\nPlease be more specific!` 
+          });
+        } else if (matches.length === 1) {
+          projectId = matches[0].id;
+          // fetch Project Name before creating (for nicer readout display)
+          const projectPage = await getProjectDetails(projectId);
+          projectLabel = projectPage.name;
+        } else {
+          return interaction.editReply({ 
+            content: `❌ **No projects found matching \`${projectNameInput}\`.** Please ensure the name is correct in Notion!` 
+          });
+        }
       }
 
       // 2. Map Multiple Assignees (comma-separated string -> Notion IDs)
@@ -63,10 +69,6 @@ export default {
       const allMembers = await getTeamMembers(); // cached, 0ms!
       const selectedMembers = allMembers.filter(m => matchedIds.includes(m.id));
       const mentions = selectedMembers.map(m => m.discordId ? `<@${m.discordId}>` : `**${m.name}**`).join(", ") || `**${assignees}**`;
-
-      // fetch Project Name before creating (for nicer readout display)
-      const projectPage = await getProjectDetails(projectId);
-      const projectLabel = projectPage.name;
 
       // 3. Create Task in Notion container
       await createTask({
