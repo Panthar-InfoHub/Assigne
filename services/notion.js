@@ -18,6 +18,7 @@ const PROPERTIES = {
   RELATION_PROJECT: "Projects",  // Relation property in Tasks DB linking to Project
   RELATION_ASSIGNEE: "Assignee (Team)", // Relation property in Tasks DB linking to Team
   DISCORD_ID: "Discord ID",     // Text property in Team Members DB storing Discord ID
+  DUE_DATE: "Due Date",         // Date property in Tasks DB
 };
 
 const dataSourceCache = {};
@@ -78,6 +79,7 @@ export async function getProjects(query = "") {
     const results = response.results.map((page) => ({
       name: page.properties[PROPERTIES.PROJECT_NAME]?.title[0]?.plain_text || "Untitled",
       id: page.id,
+      status: page.properties['Status']?.status?.name || page.properties['Status']?.select?.name || "No Status"
     }));
 
     projectsCache = results;
@@ -125,6 +127,8 @@ export async function getTeamMembers() {
       name: page.properties[PROPERTIES.TEAM_NAME]?.title[0]?.plain_text || "Unknown",
       id: page.id,
       discordId: page.properties[PROPERTIES.DISCORD_ID]?.rich_text?.[0]?.plain_text?.trim() || null,
+      availability: page.properties['Availability']?.select?.name || page.properties['Availability']?.status?.name || "Unset",
+      timezone: page.properties['Time Zone']?.select?.name || page.properties['Time Zone']?.rich_text?.[0]?.plain_text || "Unset",
     }));
     lastTeamFetch = NOW;
 
@@ -195,16 +199,16 @@ export async function findTeamMembers(namesString) {
  * Retrieves specific project details (like Name) from a Page ID
  */
 export async function getProjectDetails(projectId) {
-  if (projectNameCache[projectId]) {
-    return { name: projectNameCache[projectId], id: projectId };
-  }
-
   if (!notion) return { name: "Unknown Project" };
   try {
     const page = await notion.pages.retrieve({ page_id: projectId });
     return {
       name: page.properties[PROPERTIES.PROJECT_NAME]?.title[0]?.plain_text || "Untitled",
       id: page.id,
+      status: page.properties['Status']?.status?.name || page.properties['Status']?.select?.name || "No Status",
+      timeline: page.properties['Timeline']?.date || null,
+      budget: page.properties['Budget']?.number || page.properties['Budget']?.rich_text?.[0]?.plain_text || "None",
+      manager: page.properties['Managed By']?.people?.[0]?.name || "Unmanaged"
     };
   } catch (err) {
     console.error("Notion Error getProjectDetails:", err);
@@ -215,7 +219,7 @@ export async function getProjectDetails(projectId) {
 /**
  * Creates a new task and links it to critical relations
  */
-export async function createTask({ title, projectId, assigneeIds }) {
+export async function createTask({ title, projectId, assigneeIds, dueDate }) {
   if (!notion) throw new Error("Notion client not initialized. Add NOTION_KEY to .env");
   const dbId = process.env.NOTION_DB_TASKS;
   if (!dbId) throw new Error("NOTION_DB_TASKS not configured in .env");
@@ -238,6 +242,12 @@ export async function createTask({ title, projectId, assigneeIds }) {
     };
   }
 
+  if (dueDate) {
+    properties[PROPERTIES.DUE_DATE] = {
+      date: { start: dueDate }
+    };
+  }
+
   try {
     const response = await notion.pages.create({
       parent: { database_id: dbId },
@@ -246,6 +256,131 @@ export async function createTask({ title, projectId, assigneeIds }) {
     return response;
   } catch (err) {
     console.error("Notion Error createTask:", err);
+    throw err;
+  }
+}
+
+/**
+ * General Task search (fetches top 100 for fast local filtering)
+ */
+export async function getTasks(query = "") {
+  if (!notion) return [];
+  const dbId = process.env.NOTION_DB_TASKS;
+  if (!dbId) return [];
+
+  try {
+    const dataSourceId = await getDataSourceId(dbId);
+
+    const response = await notion.dataSources.query({
+      data_source_id: dataSourceId,
+      page_size: 50, // Get top 50 recently updated tasks
+    });
+
+    const results = response.results.map((page) => ({
+      name: page.properties[PROPERTIES.TASK_NAME]?.title?.[0]?.plain_text || "Untitled",
+      id: page.id,
+      status: page.properties["Status"]?.status?.name || page.properties["Status"]?.select?.name || "No Status",
+    }));
+
+    return results.filter(t => t.name.toLowerCase().includes(query.toLowerCase()));
+  } catch (err) {
+    console.error("Notion Error getTasks:", err);
+    return [];
+  }
+}
+
+/**
+ * Fetches all tasks associated with a Project Page ID
+ */
+export async function getProjectTasks(projectId) {
+  if (!notion) return [];
+  const dbId = process.env.NOTION_DB_TASKS;
+  if (!dbId) return [];
+
+  try {
+    const dataSourceId = await getDataSourceId(dbId);
+
+    const response = await notion.dataSources.query({
+      data_source_id: dataSourceId,
+      filter: {
+        property: PROPERTIES.RELATION_PROJECT,
+        relation: {
+          contains: projectId,
+        },
+      },
+    });
+
+    return response.results.map((page) => ({
+      name: page.properties[PROPERTIES.TASK_NAME]?.title?.[0]?.plain_text || "Untitled",
+      id: page.id,
+      status: page.properties["Status"]?.status?.name || page.properties["Status"]?.select?.name || "No Status",
+    }));
+  } catch (err) {
+    console.error("Notion Error getProjectTasks:", err);
+    return [];
+  }
+}
+
+/**
+ * Fetches all tasks assigned to a specific Team Member Page ID
+ */
+export async function getTasksAssignedTo(memberPageId) {
+  if (!notion) return [];
+  const dbId = process.env.NOTION_DB_TASKS;
+  if (!dbId) return [];
+
+  try {
+    const dataSourceId = await getDataSourceId(dbId);
+
+    const response = await notion.dataSources.query({
+      data_source_id: dataSourceId,
+      filter: {
+        property: PROPERTIES.RELATION_ASSIGNEE,
+        relation: {
+          contains: memberPageId,
+        },
+      },
+    });
+
+    return response.results.map((page) => ({
+      name: page.properties[PROPERTIES.TASK_NAME]?.title?.[0]?.plain_text || "Untitled",
+      id: page.id,
+      status: page.properties["Status"]?.status?.name || page.properties["Status"]?.select?.name || "No Status",
+    }));
+  } catch (err) {
+    console.error("Notion Error getTasksAssignedTo:", err);
+    return [];
+  }
+}
+
+/**
+ * Updates a Task Page status property
+ */
+export async function updateTaskStatus(taskId, statusName) {
+  if (!notion) throw new Error("Notion NOT initialized");
+
+  try {
+    const response = await notion.pages.update({
+      page_id: taskId,
+      properties: {
+        "Status": {
+          status: { name: statusName } // Works if it is a Status property
+        }
+      }
+    });
+    return response;
+  } catch (err) {
+    // Fallback if 'Status' is actually a Select property type 
+    if (err.message.includes("Select option")) {
+       return await notion.pages.update({
+          page_id: taskId,
+          properties: {
+            "Status": {
+              select: { name: statusName }
+            }
+          }
+       });
+    }
     throw err;
   }
 }

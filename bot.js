@@ -138,6 +138,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     try {
       await command.autocomplete(interaction);
     } catch (err) {
+      if (err.code === 10062) return; // Ignore "Unknown interaction" timeouts for fast typings
       console.error("Autocomplete error:", err);
     }
     return;

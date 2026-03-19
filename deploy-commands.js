@@ -41,6 +41,7 @@ const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
       console.log("Registered commands globally.");
     }
   } catch (err) {
-    console.error("Failed to register commands:", err);
+    console.error("Failed to register commands:");
+    console.dir(err, { depth: null });
   }
 })();

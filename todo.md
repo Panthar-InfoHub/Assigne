@@ -1,0 +1,1 @@
+- we can aa footer in assigne dtask - to update the status for that task - by the user we have assigened it
