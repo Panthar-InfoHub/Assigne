@@ -1,52 +1,27 @@
-import {
-  Client,
-  GatewayIntentBits,
-  Partials,
-  Events,
-  Collection,
-} from "discord.js";
 import dotenv from "dotenv";
 import fs from "fs";
 import express from "express";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
+import { InteractionType, InteractionResponseType, verifyKeyMiddleware } from "discord-interactions";
+import { Client, Collection, CommandInteraction, GatewayIntentBits } from "discord.js";
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const _dirname = path.dirname(_filename);
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.GuildMembers
-  ],
-  partials: [Partials.Channel],
-});
-
+/** * Even though we aren't "logging in" via WebSocket, 
+ * discord.js needs a Client instance to initialize the Interaction classes properly.
+ */
+const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 client.commands = new Collection();
-client.msgCommands = new Collection();
 
-// === Load event modules ===
-const eventsPath = path.join(__dirname, "events");
-if (fs.existsSync(eventsPath)) {
-  for (const file of fs.readdirSync(eventsPath).filter(f => f.endsWith(".js"))) {
-    try {
-      const mod = await import(pathToFileURL(path.join(eventsPath, file)).href);
-      if (mod && mod.default) mod.default({ client });
-    } catch (err) {
-      console.error("Failed to load event file:", file, err);
-    }
-  }
-}
-
-// === Load command handlers ===
+// === Load command handlers (Your existing logic) ===
 const commandsPath = path.join(__dirname, "commands");
 if (fs.existsSync(commandsPath)) {
-  for (const file of fs.readdirSync(commandsPath).filter(f => f.endsWith(".js"))) {
+  const files = fs.readdirSync(commandsPath).filter(f => f.endsWith(".js"));
+  for (const file of files) {
     try {
       const cmd = await import(pathToFileURL(path.join(commandsPath, file)).href);
       if (cmd && cmd.default && cmd.default.data) {
@@ -58,110 +33,44 @@ if (fs.existsSync(commandsPath)) {
   }
 }
 
-// === Load message command handlers ===
-const msgCommandsPath = path.join(__dirname, "msg_commands");
-if (fs.existsSync(msgCommandsPath)) {
-  for (const file of fs.readdirSync(msgCommandsPath).filter(f => f.endsWith(".js"))) {
-    try {
-      const mod = await import(pathToFileURL(path.join(msgCommandsPath, file)).href);
-      const cmd = mod.default || mod;
-      if (cmd) {
-        const name = file.replace(".js", "").toLowerCase();
-        client.msgCommands.set(name, cmd);
-      }
-    } catch (err) {
-      console.error("Failed to load message command:", file, err);
-    }
+const app = express();
+const PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY;
+
+// === The Webhook Endpoint ===
+app.post("/interactions", verifyKeyMiddleware(PUBLIC_KEY), async (req, res) => {
+  const rawInteraction = req.body;
+
+  // 1. Mandatory PING check for Discord
+  if (rawInteraction.type === InteractionType.PING) {
+    return res.send({ type: InteractionResponseType.PONG });
   }
-}
 
-client.once(Events.ClientReady, () => {
-  console.log(`Bot has awakened — logged in as ${client.user.tag}`);
-});
+  // 2. Handle Slash Commands
+  if (rawInteraction.type === InteractionType.APPLICATION_COMMAND) {
+    const command = client.commands.get(rawInteraction.data.name);
 
-const PREFIX = "!";
-client.on(Events.MessageCreate, async (message) => {
-  try {
-    if (message.author.bot) return;
+    if (!command) return res.status(404).send("Unknown Command");
 
-    if (message.content.startsWith(PREFIX)) {
-      const [command, ...args] = message.content
-        .slice(PREFIX.length)
-        .split(" ");
-
-      const cmd = client.msgCommands.get(command.toLowerCase());
-      if (cmd) {
-        try {
-          if (typeof cmd === 'function' && cmd.prototype && cmd.prototype.message) {
-            const instance = new cmd();
-            await instance.message(message);
-          } else if (cmd.message) {
-            await cmd.message(message);
-          } else if (typeof cmd === 'function') {
-            await cmd(message);
-          }
-        } catch (err) {
-          console.error(`Error executing msg command ${command}:`, err);
-        }
-      }
-    }
-  } catch (err) {
-    console.error("MessageCreate error:", err);
-  }
-});
-
-client.on(Events.InteractionCreate, async (interaction) => {
-  if (interaction.isChatInputCommand()) {
-    const command = client.commands.get(interaction.commandName);
-    if (!command) {
-      await interaction.reply({ content: "Unknown command.", ephemeral: true });
-      return;
-    }
+    /**
+     * CORE FIX: Create a real discord.js CommandInteraction object 
+     * from the raw JSON so .reply() and .editReply() work.
+     */
+    const interaction = new CommandInteraction(client, rawInteraction);
 
     try {
+      // Execute your existing command logic
       await command.execute(interaction, { client });
     } catch (err) {
-      console.error("Command execution error:", err);
-      if (interaction.replied || interaction.deferred) {
-        await interaction.followUp({ content: "There was an error executing that command.", ephemeral: true });
-      } else {
-        await interaction.reply({ content: "There was an error executing that command.", ephemeral: true });
+      console.error("Command Error:", err);
+      // Fallback if the command fails
+      if (!interaction.replied) {
+        await interaction.reply({ content: "Error executing command.", ephemeral: true });
       }
     }
-    return;
-  }
-
-  if (interaction.isAutocomplete()) {
-    const command = client.commands.get(interaction.commandName);
-    if (!command || !command.autocomplete) return;
-
-    try {
-      await command.autocomplete(interaction);
-    } catch (err) {
-      if (err.code === 10062) return; // Ignore "Unknown interaction" timeouts for fast typings
-      console.error("Autocomplete error:", err);
-    }
-    return;
   }
 });
 
-const app = express();
-app.get("/", (req, res) => res.send(`Bot is online ✨`));
-app.listen(process.env.PORT || 3000, async () => {
-  console.log("Keep-alive server listening on port", process.env.PORT || 3000);
-});
-
-process.on("SIGINT", () => {
-  console.log("SIGINT received — exiting...");
-  process.exit(0);
-});
-
-if (!process.env.DISCORD_TOKEN) {
-  console.error("DISCORD_TOKEN missing. Fill it in .env");
-  process.exit(1);
-}
-
-client.login(process.env.DISCORD_TOKEN).catch(err => {
-  console.error("Failed to login:", err);
-  process.exit(1);
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => {
+  console.log("Webhook server listening on " + PORT);
 });
