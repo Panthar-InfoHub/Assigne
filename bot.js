@@ -9,7 +9,7 @@ import { Client, Collection, CommandInteraction, GatewayIntentBits } from "disco
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
-const _dirname = path.dirname(_filename);
+const __dirname = path.dirname(__filename);
 
 /** * Even though we aren't "logging in" via WebSocket, 
  * discord.js needs a Client instance to initialize the Interaction classes properly.
