@@ -80,6 +80,12 @@ function flattenCommandOptions(options = []) {
   return result;
 }
 
+if (!process.env.DISCORD_TOKEN) {
+  throw new Error("DISCORD_TOKEN is required for gateway mode.");
+}
+
+await client.login(process.env.DISCORD_TOKEN);
+
 if (BOT_MODE === "gateway") {
   client.once("ready", () => {
     console.log(`Gateway bot ready as ${client.user.tag}`);
@@ -95,11 +101,6 @@ if (BOT_MODE === "gateway") {
     }
   });
 
-  if (!process.env.DISCORD_TOKEN) {
-    throw new Error("DISCORD_TOKEN is required for gateway mode.");
-  }
-
-  await client.login(process.env.DISCORD_TOKEN);
 } else {
   const app = express();
   const PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY;
@@ -120,6 +121,17 @@ if (BOT_MODE === "gateway") {
         });
 
         const interaction = new CommandInteraction(client, rawInteraction);
+
+        interaction.deferred = true;
+        interaction.deferReply = async () => {
+          interaction.deferred = true;
+          return;
+        };
+
+        interaction.reply = async (options) => {
+          return await interaction.editReply(options);
+        };
+
         if (rawInteraction.guild_id) {
           try {
             interaction.guild = await client.guilds.fetch(rawInteraction.guild_id);
@@ -189,14 +201,6 @@ if (BOT_MODE === "gateway") {
           getAttachment: (name) => optionsData.find(opt => opt.name === name)?.value,
         };
 
-        interaction.deferReply = async () => {
-          interaction.deferred = true;
-          return;
-        };
-
-        interaction.reply = async (options) => {
-          return await interaction.editReply(options);
-        };
         return executeCommand(interaction);
       }
 
