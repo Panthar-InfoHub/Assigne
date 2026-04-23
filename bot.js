@@ -64,6 +64,22 @@ async function executeAutocomplete(interaction) {
   }
 }
 
+function flattenCommandOptions(options = []) {
+  const result = [];
+
+  for (const option of options) {
+    // SUB_COMMAND (1) and SUB_COMMAND_GROUP (2) can contain nested options.
+    if ((option.type === 1 || option.type === 2) && Array.isArray(option.options)) {
+      result.push(...flattenCommandOptions(option.options));
+      continue;
+    }
+
+    result.push(option);
+  }
+
+  return result;
+}
+
 if (BOT_MODE === "gateway") {
   client.once("ready", () => {
     console.log(`Gateway bot ready as ${client.user.tag}`);
@@ -104,13 +120,40 @@ if (BOT_MODE === "gateway") {
         });
 
         const interaction = new CommandInteraction(client, rawInteraction);
+        if (rawInteraction.guild_id) {
+          try {
+            interaction.guild = await client.guilds.fetch(rawInteraction.guild_id);
+            if (rawInteraction.member && interaction.guild) {
+              interaction.member = await interaction.guild.members.fetch(rawInteraction.member.user.id);
+            }
+          } catch (err) {
+            console.warn("Failed to fetch guild or member:", err.message);
+          }
+        }
 
-        // Pre-fetch user data for any user options in the command
-        const optionsData = rawInteraction.data.options || [];
+        // Use flattened options so subcommand arguments are readable via getString/getUser/etc.
+        const optionsData = flattenCommandOptions(rawInteraction.data?.options || []);
         const userCache = {};
+        const resolvedUsers = rawInteraction.data?.resolved?.users || {};
 
         for (const option of optionsData) {
           if (option.type === 9 && option.value) { // type 9 = USER
+            // Prefer resolved payload data from Discord to avoid gateway/guild dependency.
+            const resolved = resolvedUsers[option.value];
+            if (resolved) {
+              userCache[option.value] = {
+                id: resolved.id,
+                username: resolved.username,
+                displayAvatarURL: ({ size = 256 } = {}) => {
+                  if (resolved.avatar) {
+                    return `https://cdn.discordapp.com/avatars/${resolved.id}/${resolved.avatar}.png?size=${size}`;
+                  }
+                  return null;
+                },
+              };
+              continue;
+            }
+
             try {
               const user = await client.users.fetch(option.value);
               userCache[option.value] = user;
@@ -123,7 +166,13 @@ if (BOT_MODE === "gateway") {
 
         // Wrap raw options into helper methods
         interaction.options = {
-          getString: (name) => optionsData.find(opt => opt.name === name)?.value,
+          getString: (name, required = false) => {
+            const value = optionsData.find(opt => opt.name === name)?.value;
+            if (required && (value === undefined || value === null)) {
+              throw new Error(`Missing required option: ${name}`);
+            }
+            return value;
+          },
           getUser: (name) => {
             const userId = optionsData.find(opt => opt.name === name)?.value;
             return userId ? userCache[userId] || null : null;

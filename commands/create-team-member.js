@@ -61,10 +61,14 @@ export default {
             const discordUser = interaction.options.getUser("discord_user");
             const availability = interaction.options.getString("availability") || "Full day";
 
-            // Fetch the Discord user's full data (including avatar)
-            const discordMember = await interaction.guild.members.fetch(discordUser.id);
+            if (!discordUser) {
+                return interaction.editReply({
+                    content: "**Failed to create team member.**\n*Error: Missing or invalid Discord user option.*",
+                });
+            }
+
             const discordId = discordUser.id;
-            const picture = discordUser.displayAvatarURL({ size: 256 });
+            const picture = discordUser.displayAvatarURL?.({ size: 256 }) || null;
 
             await connectMongo();
 
@@ -103,9 +107,12 @@ export default {
                     { name: "Timezone", value: "IST", inline: true },
                     { name: "Discord User", value: `<@${discordId}>`, inline: false }
                 )
-                .setThumbnail(picture)
                 .setColor("#602ecc")
                 .setTimestamp();
+
+            if (picture) {
+                embed.setThumbnail(picture);
+            }
 
             await interaction.editReply({ embeds: [embed] });
         } catch (err) {
