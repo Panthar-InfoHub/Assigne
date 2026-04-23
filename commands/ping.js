@@ -6,15 +6,14 @@ export default {
     .setDescription("Check bot latency and status"),
   async execute(interaction) {
     try {
-      // const sent = await interaction.reply({ content: 'Pinging...', fetchReply: true });
       const latency = Date.now() - interaction.createdTimestamp;
+      const apiPing = interaction.client.ws.ping > 0 ? `${Math.round(interaction.client.ws.ping)} ms` : "N/A (Webhook)";
       const embed = new EmbedBuilder()
         .setTitle("Pong!")
         .addFields(
           { name: "Latency", value: `${latency} ms`, inline: true },
-          { name: "API Latency", value: `${Math.round(interaction.client.ws.ping)} ms`, inline: true }
-        )
-        .setFooter({ text: "Assigne — Pick Me Up Infinite Gacha" });
+          { name: "API Latency", value: apiPing, inline: true }
+      )
       await interaction.editReply({ content: null, embeds: [embed] });
     } catch (err) {
       console.error("ping command error:", err);

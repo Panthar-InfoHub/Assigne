@@ -8,7 +8,7 @@ export default {
     .setDescription("View tasks currently assigned to you"),
 
   async execute(interaction) {
-    await interaction.deferReply();
+    // await interaction.deferReply();
 
     try {
       const members = await getTeamMembers(); // uses cache, 0ms!

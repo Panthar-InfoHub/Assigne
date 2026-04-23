@@ -81,7 +81,7 @@ export default {
     },
 
     async execute(interaction) {
-        await interaction.deferReply();
+        // await interaction.deferReply();
 
         try {
             const memberId = interaction.options.getString("member", true);
@@ -109,7 +109,7 @@ export default {
             if (discordUser) {
                 member.discordId = discordUser.id;
                 member.picture = discordUser.displayAvatarURL({ size: 256 });
-            } else if (refreshImage && member.discordId && interaction.guild) {
+            } else if (refreshImage && member.discordId) {
                 try {
                     const linkedUser = await interaction.client.users.fetch(member.discordId);
                     member.picture = linkedUser.displayAvatarURL({ size: 256 });

@@ -94,7 +94,7 @@ export default {
 
     async execute(interaction) {
         const logChannelId = process.env.LOG_CHANNEL_ID;
-        await interaction.deferReply();
+        // await interaction.deferReply();
 
         try {
             const title = interaction.options.getString("title");

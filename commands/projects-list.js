@@ -7,7 +7,7 @@ export default {
     .setDescription("List all projects currently in the workspace"),
 
   async execute(interaction) {
-    await interaction.deferReply();
+    // await interaction.deferReply();
 
     try {
       const projects = await getProjects(""); // utilizes local cache, 0ms!

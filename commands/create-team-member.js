@@ -51,7 +51,7 @@ export default {
         ),
 
     async execute(interaction) {
-        await interaction.deferReply();
+        // await interaction.deferReply();
 
         try {
             const name = interaction.options.getString("name");

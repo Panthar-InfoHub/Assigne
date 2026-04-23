@@ -24,7 +24,7 @@ export default {
     ),
 
   async execute(interaction) {
-    await interaction.deferReply();
+    // await interaction.deferReply();
     const taskInput = interaction.options.getString("task");
     const newStatus = interaction.options.getString("status");
 

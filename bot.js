@@ -137,29 +137,32 @@ if (BOT_MODE === "gateway") {
         const resolvedUsers = rawInteraction.data?.resolved?.users || {};
 
         for (const option of optionsData) {
-          if (option.type === 9 && option.value) { // type 9 = USER
-            // Prefer resolved payload data from Discord to avoid gateway/guild dependency.
-            const resolved = resolvedUsers[option.value];
+          // CORRECTED: Type 6 is User, Type 9 is Mentionable
+          if ((option.type === 6 || option.type === 9) && option.value) {
+            const userId = option.value;
+
+            // 1. Check Resolved Data (Fastest, no API call needed)
+            const resolved = resolvedUsers[userId];
             if (resolved) {
-              userCache[option.value] = {
+              userCache[userId] = {
                 id: resolved.id,
                 username: resolved.username,
                 displayAvatarURL: ({ size = 256 } = {}) => {
-                  if (resolved.avatar) {
-                    return `https://cdn.discordapp.com/avatars/${resolved.id}/${resolved.avatar}.png?size=${size}`;
-                  }
-                  return null;
+                  return resolved.avatar
+                    ? `https://cdn.discordapp.com/avatars/${resolved.id}/${resolved.avatar}.png?size=${size}`
+                    : `https://cdn.discordapp.com/embed/avatars/${parseInt(resolved.discriminator || 0) % 5}.png`;
                 },
               };
               continue;
             }
 
+            // 2. Fallback to API fetch if not in resolved (Rare for slash commands)
             try {
-              const user = await client.users.fetch(option.value);
-              userCache[option.value] = user;
+              const user = await client.users.fetch(userId);
+              userCache[userId] = user;
             } catch (err) {
-              console.warn(`Failed to fetch user ${option.value}:`, err.message);
-              userCache[option.value] = { id: option.value, displayAvatarURL: () => null };
+              console.warn(`Failed to fetch user ${userId}:`, err.message);
+              userCache[userId] = { id: userId, displayAvatarURL: () => null };
             }
           }
         }

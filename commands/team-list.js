@@ -7,7 +7,7 @@ export default {
     .setDescription("View current team members (availability, email, Discord, and profile image)"),
 
   async execute(interaction) {
-    await interaction.deferReply();
+    // await interaction.deferReply();
 
     try {
       const members = await getTeamMembers(); // uses cache, 0ms!
