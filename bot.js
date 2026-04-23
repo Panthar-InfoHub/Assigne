@@ -105,6 +105,38 @@ if (BOT_MODE === "gateway") {
 
         const interaction = new CommandInteraction(client, rawInteraction);
 
+        // Pre-fetch user data for any user options in the command
+        const optionsData = rawInteraction.data.options || [];
+        const userCache = {};
+
+        for (const option of optionsData) {
+          if (option.type === 9 && option.value) { // type 9 = USER
+            try {
+              const user = await client.users.fetch(option.value);
+              userCache[option.value] = user;
+            } catch (err) {
+              console.warn(`Failed to fetch user ${option.value}:`, err.message);
+              userCache[option.value] = { id: option.value, displayAvatarURL: () => null };
+            }
+          }
+        }
+
+        // Wrap raw options into helper methods
+        interaction.options = {
+          getString: (name) => optionsData.find(opt => opt.name === name)?.value,
+          getUser: (name) => {
+            const userId = optionsData.find(opt => opt.name === name)?.value;
+            return userId ? userCache[userId] || null : null;
+          },
+          getInteger: (name) => optionsData.find(opt => opt.name === name)?.value,
+          getBoolean: (name) => optionsData.find(opt => opt.name === name)?.value,
+          getNumber: (name) => optionsData.find(opt => opt.name === name)?.value,
+          getMentionable: (name) => optionsData.find(opt => opt.name === name)?.value,
+          getChannel: (name) => optionsData.find(opt => opt.name === name)?.value,
+          getRole: (name) => optionsData.find(opt => opt.name === name)?.value,
+          getAttachment: (name) => optionsData.find(opt => opt.name === name)?.value,
+        };
+
         interaction.deferReply = async () => {
           interaction.deferred = true;
           return;
