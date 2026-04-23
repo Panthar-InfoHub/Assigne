@@ -89,23 +89,35 @@ if (BOT_MODE === "gateway") {
   const PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY;
 
   app.post("/interactions", verifyKeyMiddleware(PUBLIC_KEY), async (req, res) => {
-    const rawInteraction = req.body;
+    try {
 
-    if (rawInteraction.type === InteractionType.PING) {
-      return res.send({ type: InteractionResponseType.PONG });
+      const rawInteraction = req.body;
+
+      if (rawInteraction.type === InteractionType.PING) {
+        return res.send({ type: InteractionResponseType.PONG });
+      }
+
+      if (rawInteraction.type === InteractionType.APPLICATION_COMMAND) {
+
+        res.send({
+          type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+        });
+
+        const interaction = new CommandInteraction(client, rawInteraction);
+        return executeCommand(interaction);
+      }
+
+      if (rawInteraction.type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE) {
+        const interaction = new AutocompleteInteraction(client, rawInteraction);
+        return executeAutocomplete(interaction);
+      }
+
+      return res.status(400).send("Unsupported interaction type");
+
+    } catch (error) {
+      console.error("Interaction Error:", error);
+      return res.status(500).send("Internal Server Error");
     }
-
-    if (rawInteraction.type === InteractionType.APPLICATION_COMMAND) {
-      const interaction = new CommandInteraction(client, rawInteraction);
-      return executeCommand(interaction);
-    }
-
-    if (rawInteraction.type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE) {
-      const interaction = new AutocompleteInteraction(client, rawInteraction);
-      return executeAutocomplete(interaction);
-    }
-
-    return res.status(400).send("Unsupported interaction type");
   });
 
   const PORT = process.env.PORT || 8080;
