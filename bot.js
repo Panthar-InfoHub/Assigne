@@ -4,27 +4,24 @@ import express from "express";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { InteractionType, InteractionResponseType, verifyKeyMiddleware } from "discord-interactions";
-import { Client, Collection, CommandInteraction, GatewayIntentBits } from "discord.js";
+import { AutocompleteInteraction, Client, Collection, CommandInteraction, GatewayIntentBits } from "discord.js";
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const BOT_MODE = (process.env.BOT_MODE || (process.env.DISCORD_PUBLIC_KEY ? "webhook" : "gateway")).toLowerCase();
 
-/** * Even though we aren't "logging in" via WebSocket, 
- * discord.js needs a Client instance to initialize the Interaction classes properly.
- */
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 client.commands = new Collection();
 
-// === Load command handlers (Your existing logic) ===
 const commandsPath = path.join(__dirname, "commands");
 if (fs.existsSync(commandsPath)) {
-  const files = fs.readdirSync(commandsPath).filter(f => f.endsWith(".js"));
+  const files = fs.readdirSync(commandsPath).filter((file) => file.endsWith(".js"));
   for (const file of files) {
     try {
       const cmd = await import(pathToFileURL(path.join(commandsPath, file)).href);
-      if (cmd && cmd.default && cmd.default.data) {
+      if (cmd?.default?.data) {
         client.commands.set(cmd.default.data.name, cmd.default);
       }
     } catch (err) {
@@ -33,44 +30,86 @@ if (fs.existsSync(commandsPath)) {
   }
 }
 
-const app = express();
-const PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY;
+async function executeCommand(interaction) {
+  const command = client.commands.get(interaction.commandName);
 
-// === The Webhook Endpoint ===
-app.post("/interactions", verifyKeyMiddleware(PUBLIC_KEY), async (req, res) => {
-  const rawInteraction = req.body;
-
-  // 1. Mandatory PING check for Discord
-  if (rawInteraction.type === InteractionType.PING) {
-    return res.send({ type: InteractionResponseType.PONG });
+  if (!command) {
+    return;
   }
 
-  // 2. Handle Slash Commands
-  if (rawInteraction.type === InteractionType.APPLICATION_COMMAND) {
-    const command = client.commands.get(rawInteraction.data.name);
+  try {
+    await command.execute(interaction, { client });
+  } catch (err) {
+    console.error("Command Error:", err);
 
-    if (!command) return res.status(404).send("Unknown Command");
-
-    /**
-     * CORE FIX: Create a real discord.js CommandInteraction object 
-     * from the raw JSON so .reply() and .editReply() work.
-     */
-    const interaction = new CommandInteraction(client, rawInteraction);
-
-    try {
-      // Execute your existing command logic
-      await command.execute(interaction, { client });
-    } catch (err) {
-      console.error("Command Error:", err);
-      // Fallback if the command fails
-      if (!interaction.replied) {
-        await interaction.reply({ content: "Error executing command.", ephemeral: true });
-      }
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply({ content: "Error executing command.", ephemeral: true });
+    } else if (!interaction.replied) {
+      await interaction.editReply({ content: "Error executing command." });
     }
   }
-});
+}
 
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => {
-  console.log("Webhook server listening on " + PORT);
-});
+async function executeAutocomplete(interaction) {
+  const command = client.commands.get(interaction.commandName);
+
+  if (!command?.autocomplete) {
+    return;
+  }
+
+  try {
+    await command.autocomplete(interaction, { client });
+  } catch (err) {
+    console.error("Autocomplete Error:", err);
+  }
+}
+
+if (BOT_MODE === "gateway") {
+  client.once("ready", () => {
+    console.log(`Gateway bot ready as ${client.user.tag}`);
+  });
+
+  client.on("interactionCreate", async (interaction) => {
+    if (interaction.isAutocomplete()) {
+      return executeAutocomplete(interaction);
+    }
+
+    if (interaction.isChatInputCommand()) {
+      return executeCommand(interaction);
+    }
+  });
+
+  if (!process.env.DISCORD_TOKEN) {
+    throw new Error("DISCORD_TOKEN is required for gateway mode.");
+  }
+
+  await client.login(process.env.DISCORD_TOKEN);
+} else {
+  const app = express();
+  const PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY;
+
+  app.post("/interactions", verifyKeyMiddleware(PUBLIC_KEY), async (req, res) => {
+    const rawInteraction = req.body;
+
+    if (rawInteraction.type === InteractionType.PING) {
+      return res.send({ type: InteractionResponseType.PONG });
+    }
+
+    if (rawInteraction.type === InteractionType.APPLICATION_COMMAND) {
+      const interaction = new CommandInteraction(client, rawInteraction);
+      return executeCommand(interaction);
+    }
+
+    if (rawInteraction.type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE) {
+      const interaction = new AutocompleteInteraction(client, rawInteraction);
+      return executeAutocomplete(interaction);
+    }
+
+    return res.status(400).send("Unsupported interaction type");
+  });
+
+  const PORT = process.env.PORT || 8080;
+  app.listen(PORT, () => {
+    console.log(`Webhook server listening on ${PORT}`);
+  });
+}

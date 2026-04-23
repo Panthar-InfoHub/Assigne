@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder } from "discord.js";
-import { getTasks } from "../services/notion.js";
+import { getTasks } from "../services/task.service.js";
 import { askAI } from "../services/ai.js";
 
 export default {
@@ -11,11 +11,11 @@ export default {
     await interaction.deferReply();
 
     try {
-      // 1. Fetch live tasks from Notion
+      // 1. Fetch live tasks from the workspace database
       const tasks = await getTasks(""); 
 
       if (tasks.length === 0) {
-        return interaction.editReply({ content: "🗂️ **No active tasks found in Notion to report on right now.**" });
+        return interaction.editReply({ content: "🗂️ **No active tasks found to report on right now.**" });
       }
 
       // 2. Format a clean Task List string for the AI to read
@@ -25,7 +25,7 @@ export default {
 
       // 3. Construct the Prompt
       const prompt = 
-        `Below is a list of open tasks from our Team Workspace in Notion. ` +
+        `Below is a list of open tasks from our team workspace. ` +
         `Please write a friendly, concise (2-3 short paragraphs max), and motivating "Daily Digest" for the group. ` +
         `Summarize the priorities, nudge standard blockers, and keep the tone professional but warm. ` +
         `Do not use lists of same exact items if they look exactly identical, consolidate them into a smart narrative.\n\n` +

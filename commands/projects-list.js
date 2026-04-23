@@ -1,10 +1,10 @@
 import { SlashCommandBuilder, EmbedBuilder } from "discord.js";
-import { getProjects } from "../services/notion.js";
+import { getProjects } from "../services/project.service.js";
 
 export default {
   data: new SlashCommandBuilder()
     .setName("projects-list")
-    .setDescription("List all projects currently in Notion"),
+    .setDescription("List all projects currently in the workspace"),
 
   async execute(interaction) {
     await interaction.deferReply();
@@ -13,17 +13,17 @@ export default {
       const projects = await getProjects(""); // utilizes local cache, 0ms!
 
       if (projects.length === 0) {
-        return interaction.editReply({ content: "🗂️ **No projects found in Notion.**" });
+        return interaction.editReply({ content: "No projects found in the workspace." });
       }
 
       const listText = projects
-        .map(p => `- [\`${p.status}\`] **${p.name}**`)
+        .map((p) => `• ${p.name}  |  ${p.status}`)
         .join("\n");
 
       const embed = new EmbedBuilder()
-        .setTitle(`📁 Projects List`)
+        .setTitle("Projects")
         .setDescription(listText)
-        .setColor("#5865F2")
+        .setColor("#4F5660")
         .setTimestamp();
 
       await interaction.editReply({ embeds: [embed] });

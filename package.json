@@ -3,17 +3,20 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start": "node bot.js",
-    "dev": "nodemon bot.js"
+    "start": "BOT_MODE=webhook node bot.js",
+    "dev": "BOT_MODE=gateway nodemon bot.js",
+    "dev:webhook": "BOT_MODE=webhook nodemon bot.js",
+    "deploy:commands": "node deploy-commands.js",
+    "wipe:commands": "node wipe-commands.js"
   },
   "dependencies": {
-    "@notionhq/client": "^5.13.0",
     "and": "^0.0.3",
     "discord-interactions": "^4.4.0",
     "discord.js": "^14.25.1",
     "dotenv": "^16.6.1",
     "express": "^4.18.2",
-    "fs": "^0.0.1-security"
+    "fs": "^0.0.1-security",
+    "mongoose": "^8.14.2"
   },
   "devDependencies": {
     "nodemon": "^3.1.11"

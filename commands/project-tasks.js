@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder } from "discord.js";
-import { getProjects, getProjectTasks } from "../services/notion.js";
+import { getProjects, getProjectTasks } from "../services/project.service.js";
 
 export default {
   data: new SlashCommandBuilder()
@@ -40,7 +40,7 @@ export default {
 
       if (tasks.length === 0) {
         return interaction.editReply({
-          content: `🗂️ **No tasks found for \`${projectName}\`** inside Notion.`
+          content: `🗂️ **No tasks found for \`${projectName}\`** in the workspace.`
         });
       }
 

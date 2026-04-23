@@ -1,5 +1,7 @@
-import { SlashCommandBuilder, EmbedBuilder, ButtonBuilder, ActionRowBuilder, ButtonStyle } from "discord.js";
-import { getProjects, findTeamMembers, createTask, getProjectDetails, getTeamMembers } from "../services/notion.js";
+import { SlashCommandBuilder, EmbedBuilder } from "discord.js";
+import { getProjects, getProjectDetails } from "../services/project.service.js";
+import { getTeamMembers, findTeamMembers } from "../services/team.service.js";
+import { createTask } from "../services/task.service.js";
 import { askAI } from "../services/ai.js";
 
 export default {
@@ -89,7 +91,7 @@ export default {
         mentions = selectedMembers.map(m => m.discordId ? `<@${m.discordId}>` : `**${m.name}**`).join(", ") || `**${assignees}**`;
       }
 
-      // 4. Create Task in Notion
+      // 4. Create Task
       await createTask({ title, projectId, assigneeIds: matchedIds });
 
       const successEmbed = new EmbedBuilder()
@@ -101,24 +103,17 @@ export default {
         successEmbed.setFooter({ text: `⚠️ Unrecognized names: ${unmatchedNames.join(", ")}` });
       }
 
-      const button = new ButtonBuilder()
-        .setLabel('View in Notion')
-        .setURL('https://brindle-chard-876.notion.site/Panthar-Infohub-b3529a1324168222b18d8144beb474b8')
-        .setStyle(ButtonStyle.Link);
-
-      const row = new ActionRowBuilder().addComponents(button);
-
       if (logChannelId) {
         try {
           const logChannel = await interaction.client.channels.fetch(logChannelId);
-          await logChannel.send({ embeds: [successEmbed], components: [row] });
-          return interaction.editReply({ content: `✅ **AI Task Logged** (Posted to <#${logChannelId}>)`, embeds: [successEmbed], components: [row] });
+          await logChannel.send({ embeds: [successEmbed] });
+          return interaction.editReply({ content: `✅ **AI Task Logged** (Posted to <#${logChannelId}>)`, embeds: [successEmbed] });
         } catch (err) {
            console.error("Failed to forward response to LOG_CHANNEL_ID:", err);
         }
       }
 
-      await interaction.editReply({ content: `✅ **AI Task Logged**`, embeds: [successEmbed], components: [row] });
+      await interaction.editReply({ content: `✅ **AI Task Logged**`, embeds: [successEmbed] });
 
     } catch (err) {
       console.error("Error creating AI task:", err);

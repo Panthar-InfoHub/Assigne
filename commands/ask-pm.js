@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder } from "discord.js";
-import { getProjects, getProjectDetails, getProjectTasks } from "../services/notion.js";
+import { getProjects, getProjectDetails, getProjectTasks } from "../services/project.service.js";
 import { askAI } from "../services/ai.js";
 
 export default {

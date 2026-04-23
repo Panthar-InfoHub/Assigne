@@ -1,5 +1,5 @@
 import { SlashCommandBuilder } from "discord.js";
-import { getTasks, updateTaskStatus } from "../services/notion.js";
+import { getTasks, updateTaskStatus } from "../services/task.service.js";
 
 export default {
   data: new SlashCommandBuilder()
