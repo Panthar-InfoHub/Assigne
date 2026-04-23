@@ -6,8 +6,8 @@ export default {
     .setDescription("Check bot latency and status"),
   async execute(interaction) {
     try {
-      const sent = await interaction.reply({ content: 'Pinging...', fetchReply: true });
-      const latency = sent.createdTimestamp - interaction.createdTimestamp;
+      // const sent = await interaction.reply({ content: 'Pinging...', fetchReply: true });
+      const latency = Date.now() - interaction.createdTimestamp;
       const embed = new EmbedBuilder()
         .setTitle("Pong!")
         .addFields(

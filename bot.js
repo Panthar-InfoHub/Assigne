@@ -104,6 +104,15 @@ if (BOT_MODE === "gateway") {
         });
 
         const interaction = new CommandInteraction(client, rawInteraction);
+
+        interaction.deferReply = async () => {
+          interaction.deferred = true;
+          return;
+        };
+
+        interaction.reply = async (options) => {
+          return await interaction.editReply(options);
+        };
         return executeCommand(interaction);
       }
 
