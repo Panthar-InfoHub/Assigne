@@ -4,7 +4,7 @@ import express from "express";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { InteractionType, InteractionResponseType, verifyKeyMiddleware } from "discord-interactions";
-import { AutocompleteInteraction, Client, Collection, CommandInteraction, GatewayIntentBits } from "discord.js";
+import { AutocompleteInteraction, Client, Collection, CommandInteraction, GatewayIntentBits, ModalSubmitInteraction } from "discord.js";
 import { saveDailyUpdate, getTodayKeyIST, getUnreportedDates } from "./services/dailyUpdate.service.js";
 import { sendNightlyReport } from "./services/report.service.js";
 import { STANDUP_MODAL_ID } from "./commands/submit-daily-report.js";
@@ -194,26 +194,50 @@ if (BOT_MODE === "gateway") {
       }
 
       if (rawInteraction.type === InteractionType.APPLICATION_COMMAND) {
-        res.send({
-          type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
-        });
-
+        const isModalCommand = rawInteraction.data?.name === "submit-daily-report";
         const interaction = new CommandInteraction(client, rawInteraction);
-        interaction.deferred = true;
-        interaction.deferReply = async () => {
-          interaction.deferred = true;
-          return;
-        };
 
-        interaction.reply = async (options) => {
-          return await interaction.editReply(options);
-        };
+        if (isModalCommand) {
+          // Do not send deferred response immediately!
+          // We will mock showModal to respond to the HTTP request directly
+          interaction.showModal = async (modal) => {
+            res.send({
+              type: 9, // InteractionResponseType.MODAL
+              data: modal.toJSON()
+            });
+          };
+        } else {
+          // Defer immediately for other commands
+          res.send({
+            type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+          });
+
+          interaction.deferred = true;
+          interaction.deferReply = async () => {
+            interaction.deferred = true;
+            return;
+          };
+
+          interaction.reply = async (options) => {
+            return await interaction.editReply(options);
+          };
+        }
 
         if (rawInteraction.guild_id) {
           try {
-            interaction.guild = await client.guilds.fetch(rawInteraction.guild_id);
-            if (rawInteraction.member && interaction.guild) {
-              interaction.member = await interaction.guild.members.fetch(rawInteraction.member.user.id);
+            const guild = await client.guilds.fetch(rawInteraction.guild_id);
+            Object.defineProperty(interaction, "guild", {
+              get: () => guild,
+              configurable: true,
+              enumerable: true
+            });
+            if (rawInteraction.member && guild) {
+              const member = await guild.members.fetch(rawInteraction.member.user.id);
+              Object.defineProperty(interaction, "member", {
+                get: () => member,
+                configurable: true,
+                enumerable: true
+              });
             }
           } catch (err) {
             console.warn("Failed to fetch guild or member:", err.message);
@@ -278,6 +302,62 @@ if (BOT_MODE === "gateway") {
       if (rawInteraction.type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE) {
         const interaction = new AutocompleteInteraction(client, rawInteraction);
         return executeAutocomplete(interaction);
+      }
+
+      if (rawInteraction.type === 5) { // InteractionType.MODAL_SUBMIT (5)
+        // Send deferred response immediately
+        res.send({
+          type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+          data: { flags: 64 } // Ephemeral flag (MessageFlags.Ephemeral = 64)
+        });
+
+        const interaction = new ModalSubmitInteraction(client, rawInteraction);
+
+        if (rawInteraction.guild_id) {
+          try {
+            const guild = await client.guilds.fetch(rawInteraction.guild_id);
+            Object.defineProperty(interaction, "guild", {
+              get: () => guild,
+              configurable: true,
+              enumerable: true
+            });
+            if (rawInteraction.member && guild) {
+              const member = await guild.members.fetch(rawInteraction.member.user.id);
+              Object.defineProperty(interaction, "member", {
+                get: () => member,
+                configurable: true,
+                enumerable: true
+              });
+            }
+          } catch (err) {
+            console.warn("Failed to fetch guild or member:", err.message);
+          }
+        }
+
+        interaction.deferred = true;
+        interaction.deferReply = async () => {
+          interaction.deferred = true;
+          return;
+        };
+
+        interaction.reply = async (options) => {
+          return await interaction.editReply(options);
+        };
+
+        if (rawInteraction.data?.custom_id === STANDUP_MODAL_ID) {
+          const standupCmd = client.commands.get("submit-daily-report");
+          if (standupCmd?.handleModal) {
+            try {
+              await standupCmd.handleModal(interaction);
+            } catch (err) {
+              console.error("[standup modal] Error in webhook:", err);
+              if (!interaction.replied && !interaction.deferred) {
+                await interaction.reply({ content: "❌ Failed to save standup.", ephemeral: true });
+              }
+            }
+          }
+        }
+        return;
       }
 
       return res.status(400).send("Unsupported interaction type");
