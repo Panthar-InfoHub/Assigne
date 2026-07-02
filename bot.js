@@ -7,7 +7,9 @@ import { InteractionType, InteractionResponseType, verifyKeyMiddleware } from "d
 import { AutocompleteInteraction, Client, Collection, CommandInteraction, GatewayIntentBits, ModalSubmitInteraction } from "discord.js";
 import { saveDailyUpdate, getTodayKeyIST, getUnreportedDates } from "./services/dailyUpdate.service.js";
 import { sendNightlyReport } from "./services/report.service.js";
-import { STANDUP_MODAL_ID } from "./commands/submit-daily-report.js";
+import { STANDUP_MODAL_ID, STANDUP_INPUT_ID } from "./commands/submit-daily-report.js";
+import { STANDUP_BUTTON_ID } from "./commands/setup-standup-channel.js";
+import { ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } from "discord.js";
 
 dotenv.config();
 
@@ -49,10 +51,14 @@ async function executeCommand(interaction) {
   } catch (err) {
     console.error("Command Error:", err);
 
-    if (!interaction.replied && !interaction.deferred) {
-      await interaction.reply({ content: "Error executing command.", ephemeral: true });
-    } else if (!interaction.replied) {
-      await interaction.editReply({ content: "Error executing command." });
+    try {
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({ content: "Error executing command.", ephemeral: true });
+      } else if (!interaction.replied) {
+        await interaction.editReply({ content: "Error executing command." });
+      }
+    } catch (_) {
+      // Interaction already expired — nothing we can do
     }
   }
 }
@@ -162,6 +168,23 @@ if (BOT_MODE === "gateway") {
       return executeCommand(interaction);
     }
 
+    // ── Button click → open the standup modal ─────────────────────────────
+    if (interaction.isButton() && interaction.customId === STANDUP_BUTTON_ID) {
+      const modal = new ModalBuilder()
+        .setCustomId(STANDUP_MODAL_ID)
+        .setTitle("Daily Standup");
+
+      const input = new TextInputBuilder()
+        .setCustomId(STANDUP_INPUT_ID)
+        .setLabel("What did you work on today?")
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(true)
+        .setMaxLength(4000);
+
+      modal.addComponents(new ActionRowBuilder().addComponents(input));
+      return interaction.showModal(modal);
+    }
+
     // Route modal submissions back to the originating command's handleModal()
     if (interaction.isModalSubmit()) {
       if (interaction.customId === STANDUP_MODAL_ID) {
@@ -191,6 +214,33 @@ if (BOT_MODE === "gateway") {
 
       if (rawInteraction.type === InteractionType.PING) {
         return res.send({ type: InteractionResponseType.PONG });
+      }
+
+      // ── Button interaction → open the standup modal ───────────────────────
+      if (rawInteraction.type === InteractionType.MESSAGE_COMPONENT) {
+        const customId = rawInteraction.data?.custom_id;
+
+        if (customId === STANDUP_BUTTON_ID) {
+          const modal = new ModalBuilder()
+            .setCustomId(STANDUP_MODAL_ID)
+            .setTitle("Daily Standup");
+
+          const input = new TextInputBuilder()
+            .setCustomId(STANDUP_INPUT_ID)
+            .setLabel("What did you work on today?")
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(true)
+            .setMaxLength(4000);
+
+          modal.addComponents(new ActionRowBuilder().addComponents(input));
+
+          return res.send({
+            type: 9, // InteractionResponseType.MODAL
+            data: modal.toJSON(),
+          });
+        }
+
+        return res.status(400).send("Unknown component interaction");
       }
 
       if (rawInteraction.type === InteractionType.APPLICATION_COMMAND) {
