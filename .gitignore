@@ -19,3 +19,6 @@ yarn-debug.log*
 yarn-error.log*
 
 MONGODB_MIGRATION.md
+extras/
+
+PUBLIC_BOT_LAUNCH_CHECKLIST.md

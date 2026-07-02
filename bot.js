@@ -5,6 +5,9 @@ import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { InteractionType, InteractionResponseType, verifyKeyMiddleware } from "discord-interactions";
 import { AutocompleteInteraction, Client, Collection, CommandInteraction, GatewayIntentBits } from "discord.js";
+import { saveDailyUpdate, getTodayKeyIST, getUnreportedDates } from "./services/dailyUpdate.service.js";
+import { sendNightlyReport } from "./services/report.service.js";
+import { STANDUP_MODAL_ID } from "./commands/submit-daily-report.js";
 
 dotenv.config();
 
@@ -12,7 +15,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const BOT_MODE = (process.env.BOT_MODE || (process.env.DISCORD_PUBLIC_KEY ? "webhook" : "gateway")).toLowerCase();
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+  ],
+});
 client.commands = new Collection();
 
 const commandsPath = path.join(__dirname, "commands");
@@ -81,14 +88,69 @@ function flattenCommandOptions(options = []) {
 }
 
 if (!process.env.DISCORD_TOKEN) {
-  throw new Error("DISCORD_TOKEN is required for gateway mode.");
+  throw new Error("DISCORD_TOKEN is required.");
 }
 
 await client.login(process.env.DISCORD_TOKEN);
 
+// ─── Daily Update helpers ─────────────────────────────────────────────────
+
+
+
+async function processMissedReports(client) {
+  try {
+    const todayKey = getTodayKeyIST();
+    const dates = await getUnreportedDates();
+    dates.sort(); // Process chronologically
+    for (const dateKey of dates) {
+      if (dateKey < todayKey) {
+        console.log(`[daily-report] Processing missed report for past date: ${dateKey}`);
+        await sendNightlyReport(client, dateKey);
+      }
+    }
+  } catch (err) {
+    console.error("[daily-report] Error processing missed reports:", err);
+  }
+}
+
+// ─── Express App Setup (Always active for Cloud Run Port Binding & Cloud Scheduler) ───
+
+const app = express();
+
+app.get("/", (req, res) => {
+  res.send("Assigne bot is active.");
+});
+
+// Trigger report endpoint called by Google Cloud Scheduler
+app.post("/trigger-report", async (req, res) => {
+  const authHeader = req.headers["authorization"];
+  const secretKey = process.env.REPORT_TRIGGER_KEY;
+
+  if (!secretKey) {
+    console.error("[trigger-report] REPORT_TRIGGER_KEY is not set in .env!");
+    return res.status(500).json({ error: "Server misconfiguration: REPORT_TRIGGER_KEY is missing." });
+  }
+
+  if (authHeader !== `Bearer ${secretKey}`) {
+    return res.status(401).send("Unauthorized");
+  }
+
+  console.log("[trigger-report] HTTP trigger received from Cloud Scheduler.");
+  try {
+    const result = await sendNightlyReport(client);
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error("[trigger-report] Failed to generate report:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Gateway mode ─────────────────────────────────────────────────────────
+
 if (BOT_MODE === "gateway") {
-  client.once("ready", () => {
+  client.once("ready", async () => {
     console.log(`Gateway bot ready as ${client.user.tag}`);
+    await processMissedReports(client);
   });
 
   client.on("interactionCreate", async (interaction) => {
@@ -99,15 +161,32 @@ if (BOT_MODE === "gateway") {
     if (interaction.isChatInputCommand()) {
       return executeCommand(interaction);
     }
+
+    // Route modal submissions back to the originating command's handleModal()
+    if (interaction.isModalSubmit()) {
+      if (interaction.customId === STANDUP_MODAL_ID) {
+        const standupCmd = client.commands.get("submit-daily-report");
+        if (standupCmd?.handleModal) {
+          try {
+            await standupCmd.handleModal(interaction);
+          } catch (err) {
+            console.error("[standup modal] Error:", err);
+            if (!interaction.replied && !interaction.deferred) {
+              await interaction.reply({ content: "❌ Failed to save standup.", ephemeral: true });
+            }
+          }
+        }
+      }
+      return;
+    }
   });
 
 } else {
-  const app = express();
+  // ─── Webhook mode ─────────────────────────────────────────────────────────
   const PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY;
 
   app.post("/interactions", verifyKeyMiddleware(PUBLIC_KEY), async (req, res) => {
     try {
-
       const rawInteraction = req.body;
 
       if (rawInteraction.type === InteractionType.PING) {
@@ -115,13 +194,11 @@ if (BOT_MODE === "gateway") {
       }
 
       if (rawInteraction.type === InteractionType.APPLICATION_COMMAND) {
-
         res.send({
           type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
         });
 
         const interaction = new CommandInteraction(client, rawInteraction);
-
         interaction.deferred = true;
         interaction.deferReply = async () => {
           interaction.deferred = true;
@@ -143,17 +220,13 @@ if (BOT_MODE === "gateway") {
           }
         }
 
-        // Use flattened options so subcommand arguments are readable via getString/getUser/etc.
         const optionsData = flattenCommandOptions(rawInteraction.data?.options || []);
         const userCache = {};
         const resolvedUsers = rawInteraction.data?.resolved?.users || {};
 
         for (const option of optionsData) {
-          // CORRECTED: Type 6 is User, Type 9 is Mentionable
           if ((option.type === 6 || option.type === 9) && option.value) {
             const userId = option.value;
-
-            // 1. Check Resolved Data (Fastest, no API call needed)
             const resolved = resolvedUsers[userId];
             if (resolved) {
               userCache[userId] = {
@@ -168,7 +241,6 @@ if (BOT_MODE === "gateway") {
               continue;
             }
 
-            // 2. Fallback to API fetch if not in resolved (Rare for slash commands)
             try {
               const user = await client.users.fetch(userId);
               userCache[userId] = user;
@@ -179,7 +251,6 @@ if (BOT_MODE === "gateway") {
           }
         }
 
-        // Wrap raw options into helper methods
         interaction.options = {
           getString: (name, required = false) => {
             const value = optionsData.find(opt => opt.name === name)?.value;
@@ -216,9 +287,10 @@ if (BOT_MODE === "gateway") {
       return res.status(500).send("Internal Server Error");
     }
   });
-
-  const PORT = process.env.PORT || 8080;
-  app.listen(PORT, () => {
-    console.log(`Webhook server listening on ${PORT}`);
-  });
 }
+
+// Always bind to the port (required for Google Cloud Run)
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => {
+  console.log(`Web server listening on port ${PORT}`);
+});
