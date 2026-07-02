@@ -38,7 +38,7 @@ export default {
   },
 
   async execute(interaction) {
-    await interaction.deferReply();
+    // await interaction.deferReply();
     const projectNameInput = interaction.options.getString("project");
 
     try {

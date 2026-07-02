@@ -28,7 +28,7 @@ export default {
   },
 
   async execute(interaction) {
-    await interaction.deferReply();
+    // await interaction.deferReply();
     const projectInput = interaction.options.getString("project");
 
     try {
@@ -61,7 +61,7 @@ export default {
       let timelineText = "Not set";
       if (project.timeline) {
         const start = project.timeline.start ? new Date(project.timeline.start).toLocaleDateString() : "Start not set";
-         const end = project.timeline.end ? new Date(project.timeline.end).toLocaleDateString() : "Present";
+        const end = project.timeline.end ? new Date(project.timeline.end).toLocaleDateString() : "Present";
         timelineText = `${start} → ${end}`;
       }
 

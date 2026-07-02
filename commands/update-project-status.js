@@ -42,7 +42,7 @@ export default {
   },
 
   async execute(interaction) {
-    await interaction.deferReply();
+    // await interaction.deferReply();
 
     try {
       const allowedRoleIds = process.env.PROJECT_CREATE_ROLE_IDS;
