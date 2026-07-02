@@ -9,7 +9,9 @@ fairy_memory.json
 
 # Test files
 commands/test-welcome.js
+extras/
 
+PUBLIC_BOT_LAUNCH_CHECKLIST.md
 # Log files
 *.log
 npm-debug.log*
