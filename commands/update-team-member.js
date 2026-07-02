@@ -100,11 +100,11 @@ export default {
                 return interaction.editReply({ content: "**Team member not found.**" });
             }
 
-            if (name !== null) member.name = name;
-            if (role !== null) member.role = role;
-            if (availability !== null) member.availability = availability;
-            if (email !== null) member.email = email;
-            if (phone !== null) member.phone = phone;
+            if (name) member.name = name;
+            if (role) member.role = role;
+            if (availability) member.availability = availability;
+            if (email) member.email = email;
+            if (phone) member.phone = phone;
 
             if (discordUser) {
                 member.discordId = discordUser.id;

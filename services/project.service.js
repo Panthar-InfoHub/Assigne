@@ -8,6 +8,11 @@ const projectCache = {
     fetchedAt: 0,
 };
 
+export function invalidateProjectsCache() {
+    projectCache.items = [];
+    projectCache.fetchedAt = 0;
+}
+
 function toStringId(value) {
     return value ? value.toString() : null;
 }
@@ -69,6 +74,23 @@ export async function getProjectDetails(projectId) {
         console.error("Mongo Error getProjectDetails:", error);
         return { name: "Unknown Project" };
     }
+}
+
+export async function updateProjectStatus(projectId, statusName) {
+    await connectMongo();
+    const project = await Project.findById(projectId);
+
+    if (!project) {
+        throw new Error("Project not found");
+    }
+
+    project.status = statusName || "Not started";
+    project.completedDate = project.status === "Completed" ? new Date() : null;
+
+    await project.save();
+    invalidateProjectsCache();
+
+    return toProjectDetails(project.toObject());
 }
 
 export async function getProjectTasks(projectId) {
