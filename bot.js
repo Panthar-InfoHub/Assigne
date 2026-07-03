@@ -5,8 +5,6 @@ import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { InteractionType, InteractionResponseType, verifyKeyMiddleware } from "discord-interactions";
 import { AutocompleteInteraction, Client, Collection, CommandInteraction, GatewayIntentBits, ModalSubmitInteraction } from "discord.js";
-import { saveDailyUpdate, getTodayKeyIST, getUnreportedDates } from "./services/dailyUpdate.service.js";
-import { sendNightlyReport } from "./services/report.service.js";
 import { STANDUP_MODAL_ID, STANDUP_INPUT_ID } from "./commands/submit-daily-report.js";
 import { STANDUP_BUTTON_ID } from "./commands/setup-standup-channel.js";
 import { ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } from "discord.js";
@@ -99,64 +97,26 @@ if (!process.env.DISCORD_TOKEN) {
 
 await client.login(process.env.DISCORD_TOKEN);
 
-// ─── Daily Update helpers ─────────────────────────────────────────────────
-
-
-
-async function processMissedReports(client) {
-  try {
-    const todayKey = getTodayKeyIST();
-    const dates = await getUnreportedDates();
-    dates.sort(); // Process chronologically
-    for (const dateKey of dates) {
-      if (dateKey < todayKey) {
-        console.log(`[daily-report] Processing missed report for past date: ${dateKey}`);
-        await sendNightlyReport(client, dateKey);
-      }
-    }
-  } catch (err) {
-    console.error("[daily-report] Error processing missed reports:", err);
-  }
-}
 
 // ─── Express App Setup (Always active for Cloud Run Port Binding & Cloud Scheduler) ───
 
 const app = express();
+app.use(express.json());
+app.set("discordClient", client);
 
 app.get("/", (req, res) => {
   res.send("Assigne bot is active.");
 });
 
-// Trigger report endpoint called by Google Cloud Scheduler
-app.post("/trigger-report", async (req, res) => {
-  const authHeader = req.headers["authorization"];
-  const secretKey = process.env.REPORT_TRIGGER_KEY;
-
-  if (!secretKey) {
-    console.error("[trigger-report] REPORT_TRIGGER_KEY is not set in .env!");
-    return res.status(500).json({ error: "Server misconfiguration: REPORT_TRIGGER_KEY is missing." });
-  }
-
-  if (authHeader !== `Bearer ${secretKey}`) {
-    return res.status(401).send("Unauthorized");
-  }
-
-  console.log("[trigger-report] HTTP trigger received from Cloud Scheduler.");
-  try {
-    const result = await sendNightlyReport(client);
-    return res.status(200).json(result);
-  } catch (err) {
-    console.error("[trigger-report] Failed to generate report:", err);
-    return res.status(500).json({ error: err.message });
-  }
-});
+// Mount admin API routes (trigger-report, generate-report, edit-past-update)
+import adminRoutes from "./routes/admin.routes.js";
+app.use(adminRoutes);
 
 // ─── Gateway mode ─────────────────────────────────────────────────────────
 
 if (BOT_MODE === "gateway") {
   client.once("ready", async () => {
     console.log(`Gateway bot ready as ${client.user.tag}`);
-    await processMissedReports(client);
   });
 
   client.on("interactionCreate", async (interaction) => {

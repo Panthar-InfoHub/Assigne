@@ -42,21 +42,18 @@ export async function getDailyUpdates(dateKey = null) {
 }
 
 /**
- * Deletes all updates for a given dateKey (default: today IST).
- * Called after the report is successfully posted to keep the DB clean.
+ * Deletes all updates older than 7 days (by dateKey).
+ * Keeps the past week's data intact as a safety buffer.
  */
-export async function clearDailyUpdates(dateKey = null) {
+export async function clearOldDailyUpdates() {
     await connectMongo();
-    const key = dateKey || getTodayKeyIST();
-    const result = await DailyUpdate.deleteMany({ dateKey: key });
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const cutoff = new Date(now.getTime() + istOffset - 7 * 24 * 60 * 60 * 1000);
+    const cutoffKey = cutoff.toISOString().split("T")[0];
+    const result = await DailyUpdate.deleteMany({ dateKey: { $lt: cutoffKey } });
+    if (result.deletedCount > 0) {
+        console.log(`[daily-updates] Cleaned ${result.deletedCount} records older than ${cutoffKey}`);
+    }
     return result.deletedCount;
 }
-
-/**
- * Returns all distinct dateKeys that currently have updates in MongoDB.
- */
-export async function getUnreportedDates() {
-    await connectMongo();
-    return DailyUpdate.distinct("dateKey");
-}
-

@@ -1,5 +1,5 @@
 import { EmbedBuilder } from "discord.js";
-import { getDailyUpdates, getTodayKeyIST, clearDailyUpdates } from "./dailyUpdate.service.js";
+import { getDailyUpdates, getTodayKeyIST, clearOldDailyUpdates } from "./dailyUpdate.service.js";
 
 /**
  * Builds and sends the daily standup report to DAILY_REPORT_CHANNEL_ID.
@@ -21,22 +21,11 @@ export async function sendNightlyReport(client, targetDateKey = null) {
         const updates = await getDailyUpdates(dateKey);
         const channel = await client.channels.fetch(reportChannelId);
 
-        // ── Empty day ──────────────────────────────────────────────────────────
+        // ── Empty day (Sundays, holidays) — skip silently ───────────────────────
         if (updates.length === 0) {
-            await channel.send({
-                embeds: [
-                    new EmbedBuilder()
-                        .setColor(0x2b2d31)
-                        .setTitle("📋  Daily Standup  ·  No Updates")
-                        .setDescription(
-                            `*No standup updates were submitted on **${dateKey}**.*\n` +
-                            `Remind the team to run \`/standup\` throughout the day!`
-                        )
-                        .setTimestamp()
-                        .setFooter({ text: "Assigne · Daily Standup" }),
-                ],
-            });
-            return { success: true, memberCount: 0, updateCount: 0 };
+            console.log(`[daily-report] No updates for ${dateKey} — skipping.`);
+            await clearOldDailyUpdates();
+            return { success: true, memberCount: 0, updateCount: 0, skipped: true };
         }
 
         // ── Group by user ──────────────────────────────────────────────────────
@@ -72,8 +61,13 @@ export async function sendNightlyReport(client, targetDateKey = null) {
             0xed4245, 0x00b0f4, 0xf47fff, 0x43b581,
         ];
 
-        const memberEmbeds = userList.map((user, idx) => {
-            // Join multiple submissions with a blank line, paste raw
+        const MAX_MEMBER_EMBEDS = 9; // 1 header + 9 members = 10 embeds max
+
+        // If more than 9 members, first 8 get their own embeds, rest merge into the 9th
+        const soloUsers = userList.slice(0, Math.min(userList.length, MAX_MEMBER_EMBEDS));
+        const overflowUsers = userList.slice(MAX_MEMBER_EMBEDS);
+
+        const memberEmbeds = soloUsers.map((user, idx) => {
             const body = user.messages.join("\n\n");
             const safe = body.length > 4000 ? body.slice(0, 3997) + "..." : body;
 
@@ -83,18 +77,27 @@ export async function sendNightlyReport(client, targetDateKey = null) {
                 .setDescription(safe);
         });
 
-        // ── Single message (Discord allows up to 10 embeds per message) ───────
-        const allEmbeds = [headerEmbed, ...memberEmbeds];
-        const LIMIT = 10;
-        for (let i = 0; i < allEmbeds.length; i += LIMIT) {
-            await channel.send({ embeds: allEmbeds.slice(i, i + LIMIT) });
+        // Merge overflow users into the last embed
+        if (overflowUsers.length > 0 && memberEmbeds.length > 0) {
+            const lastEmbed = memberEmbeds[memberEmbeds.length - 1];
+            let combined = lastEmbed.data.description || "";
+            for (const user of overflowUsers) {
+                const body = user.messages.join("\n\n");
+                combined += `\n\n──────────────────\n**${user.displayName}**\n${body}`;
+            }
+            const safe = combined.length > 4000 ? combined.slice(0, 3997) + "..." : combined;
+            lastEmbed.setDescription(safe);
         }
 
-        // ── Cleanup MongoDB ────────────────────────────────────────────────────
-        const deleted = await clearDailyUpdates(dateKey);
+        // ── Single message (capped at 10 embeds) ─────────────────────────────
+        const allEmbeds = [headerEmbed, ...memberEmbeds];
+        await channel.send({ embeds: allEmbeds });
+
+        // ── Cleanup old updates (>7 days) — keep recent data as safety buffer ──
+        await clearOldDailyUpdates();
         console.log(
             `[daily-report] Report sent for ${dateKey}: ` +
-            `${memberCount} members, ${updateCount} updates, ${deleted} records cleaned.`
+            `${memberCount} members, ${updateCount} updates.`
         );
 
         return { success: true, memberCount, updateCount };
