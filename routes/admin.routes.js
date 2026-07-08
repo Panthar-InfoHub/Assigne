@@ -106,14 +106,14 @@ router.post("/edit-past-update", async (req, res) => {
 
     try {
         const channel = await client.channels.fetch(targetChannelId);
-        const message = await channel.messages.fetch(messageId);
+        const message = await channel.messages.fetch({ message: messageId, force: true });
 
         if (!message) {
             return res.status(404).json({ error: `Message ${messageId} not found in channel.` });
         }
 
         // ── Reconstruct embeds (Discord returns raw data, we need EmbedBuilder) ─
-        const existingEmbeds = message.embeds.map((e) => EmbedBuilder.from(e));
+        const existingEmbeds = message.embeds.map((e) => EmbedBuilder.from(e.toJSON()));
 
         // ── Color palette (same as report.service.js) ───────────────────────────
         const palette = [
